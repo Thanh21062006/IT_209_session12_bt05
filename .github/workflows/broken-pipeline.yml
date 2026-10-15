@@ -1,0 +1,57 @@
+name: Repaired CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  test-and-build:
+    name: Test and Build Spring Boot App
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout mã nguồn
+        uses: actions/checkout@v5
+
+      - name: Thiết lập môi trường Java JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      # [SỬA LỖI 1]: Cấp quyền thực thi cho Gradle Wrapper để tránh lỗi "Permission Denied"
+      - name: Cấp quyền cho Gradle Wrapper
+        run: chmod +x gradlew
+
+      - name: Thực thi Unit Test với Gradle
+        run: ./gradlew test
+
+      - name: Đóng gói tệp JAR với Gradle
+        run: ./gradlew bootJar
+
+      - name: Chuẩn hóa tên Image chữ thường
+        id: prep
+        run: |
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "image=ghcr.io/${REPO_LOWER}:latest" >> "$GITHUB_OUTPUT"
+
+      # [SỬA LỖI 2]: Khắc phục lỗi gõ sai tên Secret (${{ secrets.REGISTRY_TOKKEN }} -> ${{ secrets.REGISTRY_TOKEN }})
+      - name: Đăng nhập vào GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
+
+      # [SỬA LỖI 3]: Khắc phục lỗi Build Context và file Dockerfile (chỉ định context: . và file: ./Dockerfile)
+      - name: Đóng gói và đẩy Docker Image lên GHCR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.prep.outputs.image }}
